@@ -47,6 +47,31 @@ async function compileContract(contractName, sourceCode) {
             
             exec(command, { cwd: process.cwd() }, async (error, stdout, stderr) => {
                 if (error) {
+                    console.log('Raw compilation error:', stderr);
+
+                    // Detectar errores de importación de OpenZeppelin
+                    const ozImportError = stderr.match(/Error HH404: File (@openzeppelin\/contracts\/.*?\.sol).*not found/);
+                    if (ozImportError) {
+                        reject({
+                            type: 'ImportError',
+                            errorType: 'DependencyNotFound',
+                            message: `Missing OpenZeppelin import: ${ozImportError[1]}`,
+                            details: {
+                                missingFile: ozImportError[1],
+                                possibleCause: 'OpenZeppelin contract import not found'
+                            },
+                            suggestion: [
+                                "Make sure @openzeppelin/contracts is installed correctly:",
+                                "1. Run 'npm install @openzeppelin/contracts'",
+                                "2. Check that the import path is correct",
+                                "3. Verify you're using a compatible version"
+                            ].join('\n'),
+                            errorCode: 'HH404',
+                            helpUrl: 'https://hardhat.org/HH404'
+                        });
+                        return;
+                    }
+
                     // Extraer y limpiar el error relevante
                     const errorLines = stderr.split('\n').map(line => line.trim()).filter(Boolean);
                     let errorMessage = '';
@@ -54,51 +79,130 @@ async function compileContract(contractName, sourceCode) {
                     let columnNumber = null;
                     let errorCode = null;
                     let suggestion = '';
+                    let notes = [];
+                    let relevantSource = '';
+                    let currentSection = 'main';
+                    let errorType = '';
+                    let helpUrl = '';
 
                     for (const line of errorLines) {
+                        // Ignorar líneas de log de hardhat
+                        if (line.startsWith('hardhat:')) continue;
+
+                        // Capturar URL de ayuda si existe
+                        if (line.includes('For more info go to')) {
+                            helpUrl = line.match(/go to (https:\/\/\S+)/)?.[1] || '';
+                            continue;
+                        }
+
+                        // Detectar tipo de error
+                        const errorTypeMatch = line.match(/(TypeError|ParserError|Error|ImportError):/);
+                        if (errorTypeMatch) {
+                            errorType = errorTypeMatch[1];
+                        }
+
+                        // Detectar sección de notas
+                        if (line.startsWith('Note:')) {
+                            currentSection = 'note';
+                            const noteMessage = line.replace('Note:', '').trim();
+                            if (noteMessage) {
+                                notes.push({
+                                    message: noteMessage,
+                                    location: null,
+                                    source: ''
+                                });
+                            }
+                            continue;
+                        }
+
                         // Buscar el mensaje de error principal
-                        if (line.includes('Error:') || line.includes('ParserError:') || line.includes('TypeError:')) {
+                        if (errorTypeMatch) {
+                            currentSection = 'main';
                             // Limpiar caracteres de escape y formateo
                             errorMessage = line
-                                .replace(/\u001b\[\d+m/g, '') // Eliminar códigos de color ANSI
-                                .replace(/Error: /g, '')      // Eliminar prefijo "Error: "
-                                .replace(/\[.+?\]/g, '')      // Eliminar corchetes y su contenido
+                                .replace(/\u001b\[\d+m/g, '')
+                                .replace(/(?:Error|ParserError|TypeError): /g, '')
+                                .replace(/\[.+?\]/g, '')
                                 .trim();
                         }
                         
-                        // Buscar la ubicación del error
-                        const locationMatch = line.match(/-->.*:(\d+):(\d+):/);
+                        // Buscar la ubicación del error o nota
+                        const locationMatch = line.match(/-->\s+(.+?):(\d+):(\d+):/);
                         if (locationMatch) {
-                            lineNumber = parseInt(locationMatch[1]);
-                            columnNumber = parseInt(locationMatch[2]);
+                            const [_, file, line, column] = locationMatch;
+                            if (currentSection === 'main') {
+                                lineNumber = parseInt(line);
+                                columnNumber = parseInt(column);
+                            } else if (currentSection === 'note' && notes.length > 0) {
+                                notes[notes.length - 1].location = {
+                                    file: file.split('/').pop(),
+                                    line: parseInt(line),
+                                    column: parseInt(column)
+                                };
+                            }
+                        }
+
+                        // Capturar código fuente relevante
+                        if (line.includes('|')) {
+                            const sourceMatch = line.match(/\|\s*(\d+)?\s*\|(.*)/);
+                            if (sourceMatch) {
+                                const [_, lineNum, code] = sourceMatch;
+                                const trimmedCode = code.trim();
+                                if (trimmedCode) {
+                                    if (currentSection === 'main') {
+                                        relevantSource += trimmedCode + '\n';
+                                    } else if (currentSection === 'note' && notes.length > 0) {
+                                        notes[notes.length - 1].source = (notes[notes.length - 1].source || '') + trimmedCode + '\n';
+                                    }
+                                }
+                            }
                         }
 
                         // Extraer código de error si existe
-                        const errorCodeMatch = line.match(/Error HH\d+:/);
+                        const errorCodeMatch = line.match(/Error ([A-Z]+\d+):/);
                         if (errorCodeMatch) {
-                            errorCode = errorCodeMatch[0].replace(':', '');
+                            errorCode = errorCodeMatch[1];
                         }
                     }
 
                     // Generar sugerencia basada en el tipo de error
-                    if (errorMessage.includes('Expected')) {
+                    if (errorMessage.includes('not found')) {
+                        suggestion = [
+                            'Check the following:',
+                            '1. Verify that all imported files exist',
+                            '2. Make sure all required dependencies are installed',
+                            '3. Check import paths are correct',
+                            '4. Run npm install if you haven\'t already'
+                        ].join('\n');
+                    } else if (errorMessage.includes('No arguments passed to the base constructor')) {
+                        suggestion = `The contract inherits from another contract that requires constructor parameters. Add the required parameters to your constructor: ${notes.map(n => n.source.trim()).join(', ')}`;
+                    } else if (errorMessage.includes('Expected')) {
                         suggestion = `Check the syntax near line ${lineNumber}. ${errorMessage}`;
-                    } else if (errorMessage.includes('not found')) {
-                        suggestion = 'Verify that all referenced contracts and dependencies are properly imported.';
                     } else if (errorMessage.includes('already declared')) {
                         suggestion = 'Remove or rename the duplicate declaration.';
                     }
 
-                    reject({
+                    const errorResponse = {
                         type: 'CompilationError',
-                        message: errorMessage || 'Compilation failed',
+                        errorType: errorType || 'Unknown',
+                        message: errorMessage || stderr.split('\n')[0], // Usar la primera línea si no hay mensaje específico
                         location: lineNumber ? {
                             line: lineNumber,
                             column: columnNumber
                         } : null,
-                        suggestion,
-                        errorCode
-                    });
+                        suggestion: suggestion || 'Check your contract syntax and make sure all dependencies are properly imported.',
+                        errorCode,
+                        notes: notes.length > 0 ? notes.map(note => ({
+                            ...note,
+                            source: note.source ? note.source.trim() : undefined
+                        })) : undefined,
+                        relevantSource: relevantSource.trim() || undefined,
+                        helpUrl: helpUrl || undefined,
+                        fullError: process.env.NODE_ENV === 'development' ? stderr : undefined
+                    };
+
+                    console.log('Structured error response:', JSON.stringify(errorResponse, null, 2));
+                    reject(errorResponse);
                     return;
                 }
 
@@ -145,7 +249,8 @@ async function compileContract(contractName, sourceCode) {
         throw {
             type: 'SystemError',
             message: 'System error during compilation',
-            details: err.message
+            details: err.message,
+            stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
         };
     }
 }
