@@ -40,69 +40,113 @@ async function compileContract(contractName, sourceCode) {
     const contractPath = path.join(contractsDir, `${contractName}.sol`);
     
     try {
-        // Guardar el contrato
         await fs.writeFile(contractPath, sourceCode);
-        console.log(`Contract saved to: ${contractPath}`);
-        console.log('Contract source code:', sourceCode);
 
         return new Promise((resolve, reject) => {
-            // Ejecutar la compilación con más verbosidad
-            const command = 'npx hardhat compile --force --verbose';
-            console.log('Executing command:', command);
+            const command = 'npx hardhat compile --force';
             
             exec(command, { cwd: process.cwd() }, async (error, stdout, stderr) => {
-                console.log('Compilation stdout:', stdout);
-                if (stderr) console.error('Compilation stderr:', stderr);
-
                 if (error) {
-                    console.error('Compilation error:', error);
-                    reject(new Error(`Compilation failed: ${error.message}\nStdout: ${stdout}\nStderr: ${stderr}`));
+                    // Extraer y limpiar el error relevante
+                    const errorLines = stderr.split('\n').map(line => line.trim()).filter(Boolean);
+                    let errorMessage = '';
+                    let lineNumber = null;
+                    let columnNumber = null;
+                    let errorCode = null;
+                    let suggestion = '';
+
+                    for (const line of errorLines) {
+                        // Buscar el mensaje de error principal
+                        if (line.includes('Error:') || line.includes('ParserError:') || line.includes('TypeError:')) {
+                            // Limpiar caracteres de escape y formateo
+                            errorMessage = line
+                                .replace(/\u001b\[\d+m/g, '') // Eliminar códigos de color ANSI
+                                .replace(/Error: /g, '')      // Eliminar prefijo "Error: "
+                                .replace(/\[.+?\]/g, '')      // Eliminar corchetes y su contenido
+                                .trim();
+                        }
+                        
+                        // Buscar la ubicación del error
+                        const locationMatch = line.match(/-->.*:(\d+):(\d+):/);
+                        if (locationMatch) {
+                            lineNumber = parseInt(locationMatch[1]);
+                            columnNumber = parseInt(locationMatch[2]);
+                        }
+
+                        // Extraer código de error si existe
+                        const errorCodeMatch = line.match(/Error HH\d+:/);
+                        if (errorCodeMatch) {
+                            errorCode = errorCodeMatch[0].replace(':', '');
+                        }
+                    }
+
+                    // Generar sugerencia basada en el tipo de error
+                    if (errorMessage.includes('Expected')) {
+                        suggestion = `Check the syntax near line ${lineNumber}. ${errorMessage}`;
+                    } else if (errorMessage.includes('not found')) {
+                        suggestion = 'Verify that all referenced contracts and dependencies are properly imported.';
+                    } else if (errorMessage.includes('already declared')) {
+                        suggestion = 'Remove or rename the duplicate declaration.';
+                    }
+
+                    reject({
+                        type: 'CompilationError',
+                        message: errorMessage || 'Compilation failed',
+                        location: lineNumber ? {
+                            line: lineNumber,
+                            column: columnNumber
+                        } : null,
+                        suggestion,
+                        errorCode
+                    });
                     return;
                 }
 
                 try {
-                    // Listar archivos en el directorio de artefactos para debug
-                    const artifactsDir = path.join(process.cwd(), 'artifacts/contracts');
-                    console.log('Listing artifacts directory:', artifactsDir);
-                    const files = await fs.readdir(artifactsDir, { recursive: true });
-                    console.log('Files in artifacts directory:', files);
-
                     const artifactPath = path.join(
                         process.cwd(),
                         'artifacts/contracts',
                         `${contractName}.sol`,
                         `${contractName}.json`
                     );
-                    console.log(`Looking for artifact at: ${artifactPath}`);
                     
                     const artifactExists = await fs.access(artifactPath)
                         .then(() => true)
                         .catch(() => false);
                     
                     if (!artifactExists) {
-                        console.error('Artifact not found. Directory contents:', await fs.readdir(path.dirname(artifactPath)));
-                        throw new Error(`Compilation succeeded but artifact not found. This might indicate a contract name mismatch. Expected: ${contractName}`);
+                        reject({
+                            type: 'ArtifactError',
+                            message: 'Contract compilation failed',
+                            details: `Could not generate artifact for "${contractName}"`,
+                            suggestion: 'Verify that the contract name and syntax are correct'
+                        });
+                        return;
                     }
 
                     const artifact = JSON.parse(await fs.readFile(artifactPath, 'utf8'));
-                    console.log('Artifact loaded successfully');
-                    
                     resolve({
-                        output: stdout,
+                        success: true,
                         artifact: {
                             abi: artifact.abi,
                             bytecode: artifact.bytecode
                         }
                     });
                 } catch (err) {
-                    console.error('Error processing compilation result:', err);
-                    reject(new Error(`Compilation succeeded but failed to process result: ${err.message}`));
+                    reject({
+                        type: 'ProcessingError',
+                        message: 'Failed to process compilation',
+                        details: err.message
+                    });
                 }
             });
         });
     } catch (err) {
-        console.error('Error in compilation process:', err);
-        throw new Error(`Failed to compile contract: ${err.message}`);
+        throw {
+            type: 'SystemError',
+            message: 'System error during compilation',
+            details: err.message
+        };
     }
 }
 
@@ -180,48 +224,65 @@ router.post('/compile', async (req, res) => {
         // Validar campos requeridos
         if (!contractName || !sourceCode) {
             return res.status(400).json({ 
-                error: 'Contract name and source code are required',
-                received: {
-                    contractName: !!contractName,
-                    sourceCode: !!sourceCode
+                type: 'ValidationError',
+                message: 'Missing required fields',
+                details: {
+                    contractName: !contractName ? 'Contract name is required' : null,
+                    sourceCode: !sourceCode ? 'Source code is required' : null
                 },
-                tip: "Only 'contractName' and 'sourceCode' fields are required"
+                suggestion: "Provide both 'contractName' and 'sourceCode' fields"
             });
         }
 
         // Verificar que el nombre del contrato coincida con el código
-        const contractNameRegex = /contract\s+(\w+)\s*{/;
+        const contractNameRegex = /contract\s+(\w+)(?:\s+is\s+[^{]+)?\s*{/;
         const contractNameMatch = sourceCode.match(contractNameRegex);
         if (!contractNameMatch || contractNameMatch[1] !== contractName) {
             return res.status(400).json({
-                error: 'Contract name mismatch',
-                details: `The contract name in the source code (${contractNameMatch ? contractNameMatch[1] : 'not found'}) does not match the provided name (${contractName})`,
-                tip: "Make sure the contract name in sourceCode matches exactly with contractName"
+                type: 'ValidationError',
+                message: 'Contract name mismatch',
+                details: {
+                    providedName: contractName,
+                    foundName: contractNameMatch ? contractNameMatch[1] : 'not found'
+                },
+                location: contractNameMatch ? {
+                    // Encontrar la línea donde está la declaración del contrato
+                    line: sourceCode.substring(0, sourceCode.indexOf(contractNameMatch[0])).split('\n').length,
+                    column: sourceCode.split('\n')[sourceCode.substring(0, sourceCode.indexOf(contractNameMatch[0])).split('\n').length - 1].indexOf('contract') + 1
+                } : null,
+                suggestion: "Make sure the contract name in the source code matches exactly with the provided name"
             });
         }
 
         // Verificar que el código incluye la versión de Solidity
         if (!sourceCode.includes('pragma solidity')) {
             return res.status(400).json({
-                error: 'Missing Solidity version',
+                type: 'ValidationError',
+                message: 'Missing Solidity version',
                 details: 'The source code must include a pragma solidity statement',
-                tip: "Include 'pragma solidity ^0.8.20;' at the beginning of your source code"
+                suggestion: "Add 'pragma solidity ^0.8.20;' at the beginning of your source code"
             });
         }
 
-        const compilationResult = await compileContract(contractName, sourceCode);
-        
+        const result = await compileContract(contractName, sourceCode);
         res.json({ 
+            type: 'Success',
             message: 'Compilation successful',
-            ...compilationResult
+            ...result
         });
     } catch (error) {
-        console.error('Compilation error:', error);
-        res.status(500).json({ 
-            error: 'Compilation error', 
-            details: error.message,
-            stack: error.stack
-        });
+        // Si el error ya está estructurado, lo enviamos directamente
+        if (error.type) {
+            res.status(500).json(error);
+        } else {
+            // Si es un error no estructurado, lo formateamos
+            res.status(500).json({ 
+                type: 'UnknownError',
+                message: 'An unexpected error occurred',
+                details: error.message,
+                stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+            });
+        }
     }
 });
 

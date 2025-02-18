@@ -4,108 +4,109 @@ pragma solidity ^0.8.20;
 /**
  * @title SupervisedDAO
  * @dev This contract implements a Decentralized Autonomous Organization (DAO) with a supervisor role.
- * The supervisor can veto proposals and transfer supervisor rights to a new address.
+ *      The supervisor has the ability to pause and unpause the DAO, as well as to upgrade the contract implementation.
  */
 contract SupervisedDAO {
+    // Events
+    event Paused(address account);
+    event Unpaused(address account);
+    event ProposalCreated(uint256 proposalId, address proposer, uint256 startBlock, uint256 endBlock);
+    event VoteCast(uint256 proposalId, address voter, bool support, uint256 votes);
+    event ProposalExecuted(uint256 proposalId);
+
+    // Data structures
     struct Proposal {
-        uint id;
-        string description;
-        uint votingDeadline;
-        uint yesVotes;
-        uint noVotes;
+        address proposer;
+        uint256 startBlock;
+        uint256 endBlock;
+        uint256 forVotes;
+        uint256 againstVotes;
         bool executed;
-        mapping(address => bool) votes;
+        bytes callData;
     }
 
-    mapping(uint => Proposal) public proposals;
-    uint public proposalCount;
-
+    // State variables
     address public supervisor;
-    mapping(address => bool) public members;
-    uint public minimumQuorum;
-    uint public debatingPeriodDuration;
+    mapping(uint256 => Proposal) public proposals;
+    uint256 public proposalCount;
+    mapping(address => uint256) public votingPower;
+    bool public paused;
 
-    event ProposalCreated(uint id, string description, uint votingDeadline);
-    event VotedOn(uint id, bool vote, address voter);
-    event ProposalExecuted(uint id);
-    event SupervisorChanged(address newSupervisor);
-
+    // Modifiers
     modifier onlySupervisor() {
         require(msg.sender == supervisor, "Only the supervisor can perform this action.");
         _;
     }
 
-    modifier onlyMembers() {
-        require(members[msg.sender], "Only members can perform this action.");
+    modifier whenNotPaused() {
+        require(!paused, "Contract is paused.");
         _;
     }
 
-    constructor(
-        address[] memory _members,
-        uint _minimumQuorum,
-        uint _debatingPeriodDuration,
-        address _supervisor
-    ) {
+    // Constructor
+    constructor(address _supervisor) {
         supervisor = _supervisor;
-        minimumQuorum = _minimumQuorum;
-        debatingPeriodDuration = _debatingPeriodDuration;
-
-        for (uint i = 0; i < _members.length; i++) {
-            members[_members[i]] = true;
-        }
     }
 
-    function createProposal(string memory _description) public onlyMembers {
-        Proposal storage proposal = proposals[proposalCount];
-        proposal.id = proposalCount;
-        proposal.description = _description;
-        proposal.votingDeadline = block.timestamp + debatingPeriodDuration;
-
-        emit ProposalCreated(proposalCount, _description, proposal.votingDeadline);
-        proposalCount++;
+    // Supervisor functions
+    function pause() public onlySupervisor {
+        paused = true;
+        emit Paused(msg.sender);
     }
 
-    function voteOnProposal(uint _id, bool _vote) public onlyMembers {
-        Proposal storage proposal = proposals[_id];
-        require(block.timestamp < proposal.votingDeadline, "Voting deadline has passed.");
-        require(!proposal.votes[msg.sender], "You have already voted on this proposal.");
+    function unpause() public onlySupervisor {
+        paused = false;
+        emit Unpaused(msg.sender);
+    }
 
-        if (_vote) {
-            proposal.yesVotes++;
+    // Proposal functions
+    function createProposal(bytes memory _callData) public whenNotPaused returns (uint256) {
+        uint256 startBlock = block.number;
+        uint256 endBlock = startBlock + 10000; // Example: Proposals are open for 10,000 blocks
+
+        proposals[proposalCount] = Proposal({
+            proposer: msg.sender,
+            startBlock: startBlock,
+            endBlock: endBlock,
+            forVotes: 0,
+            againstVotes: 0,
+            executed: false,
+            callData: _callData
+        });
+
+        emit ProposalCreated(proposalCount, msg.sender, startBlock, endBlock);
+
+        return proposalCount++;
+    }
+
+    function voteOnProposal(uint256 _proposalId, bool _support) public whenNotPaused {
+        Proposal storage proposal = proposals[_proposalId];
+        require(block.number >= proposal.startBlock && block.number <= proposal.endBlock, "Voting period has not started or has ended.");
+        require(!proposal.executed, "Proposal has already been executed.");
+
+        uint256 votes = votingPower[msg.sender];
+        if (_support) {
+            proposal.forVotes += votes;
         } else {
-            proposal.noVotes++;
+            proposal.againstVotes += votes;
         }
 
-        proposal.votes[msg.sender] = true;
-        emit VotedOn(_id, _vote, msg.sender);
+        emit VoteCast(_proposalId, msg.sender, _support, votes);
     }
 
-    function executeProposal(uint _id) public onlyMembers {
-        Proposal storage proposal = proposals[_id];
-        require(block.timestamp >= proposal.votingDeadline, "Voting is still ongoing.");
+    function executeProposal(uint256 _proposalId) public whenNotPaused {
+        Proposal storage proposal = proposals[_proposalId];
+        require(block.number > proposal.endBlock, "Voting period has not ended.");
         require(!proposal.executed, "Proposal has already been executed.");
-
-        uint totalVotes = proposal.yesVotes + proposal.noVotes;
-        require(totalVotes >= minimumQuorum, "Minimum quorum was not reached.");
-        require(proposal.yesVotes > proposal.noVotes, "Proposal was rejected.");
+        require(proposal.forVotes > proposal.againstVotes, "Proposal did not receive enough votes.");
 
         proposal.executed = true;
-        emit ProposalExecuted(_id);
-        // Add your proposal execution logic here
+        (bool success, ) = address(this).call(proposal.callData);
+        require(success, "Proposal execution failed.");
+
+        emit ProposalExecuted(_proposalId);
     }
 
-    function vetoProposal(uint _id) public onlySupervisor {
-        Proposal storage proposal = proposals[_id];
-        require(!proposal.executed, "Proposal has already been executed.");
-
-        proposal.yesVotes = 0;
-        proposal.noVotes = 0;
-        proposal.executed = true;
-        // Add your veto execution logic here
-    }
-
-    function transferSupervisor(address _newSupervisor) public onlySupervisor {
-        supervisor = _newSupervisor;
-        emit SupervisorChanged(_newSupervisor);
-    }
+    // Upgrade functions (to be implemented)
+    // ...
 }
