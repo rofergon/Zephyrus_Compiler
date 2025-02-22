@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { exec } = require('child_process');
+const solc = require('solc');
 const { ethers } = require('ethers');
 const fs = require('fs').promises;
 const path = require('path');
@@ -73,70 +73,55 @@ async function setupTempDirectories() {
 // Función para compilar contrato
 async function compileContract(contractName, sourceCode) {
     console.log(`Starting compilation for contract: ${contractName}`);
-    const { contractsDir } = await setupTempDirectories();
-    const contractPath = path.join(contractsDir, `${contractName}.sol`);
     
     try {
-        // Escribir el contrato
-        await fs.writeFile(contractPath, sourceCode);
-
-        return new Promise((resolve, reject) => {
-            const command = 'npx hardhat compile --force';
-            
-            exec(command, { cwd: process.cwd() }, async (error, stdout, stderr) => {
-                if (error) {
-                    console.log('Raw compilation error:', stderr);
-                    
-                    // Limpiar caracteres de escape ANSI y formatear el error
-                    const cleanError = stderr
-                        .replace(/\u001b\[\d+m/g, '') // Eliminar códigos de color ANSI
-                        .replace(/\r\n/g, '\n')       // Normalizar saltos de línea
-                        .split('\n')                  // Dividir en líneas
-                        .filter(line => 
-                            line.trim() &&            // Eliminar líneas vacías
-                            !line.includes('For more info') && // Eliminar línea de info adicional
-                            !line.includes('--stack-traces')   // Eliminar línea de stack traces
-                        )
-                        .join('\n');                 // Volver a unir las líneas
-
-                    reject(cleanError);
-                    return;
+        const input = {
+            language: 'Solidity',
+            sources: {
+                [contractName + '.sol']: {
+                    content: sourceCode
                 }
-
-                try {
-                    const artifactPath = path.join(
-                        process.cwd(),
-                        'artifacts/contracts',
-                        `${contractName}.sol`,
-                        `${contractName}.json`
-                    );
-                    
-                    const artifactExists = await fs.access(artifactPath)
-                        .then(() => true)
-                        .catch(() => false);
-                    
-                    if (!artifactExists) {
-                        reject('Contract compilation failed: Could not generate artifact');
-                        return;
+            },
+            settings: {
+                outputSelection: {
+                    '*': {
+                        '*': ['*']
                     }
-
-                    const artifact = JSON.parse(await fs.readFile(artifactPath, 'utf8'));
-                    resolve({
-                        success: true,
-                        artifact: {
-                            abi: artifact.abi,
-                            bytecode: artifact.bytecode
-                        }
-                    });
-                } catch (err) {
-                    reject('Failed to process compilation: ' + err.message);
+                },
+                optimizer: {
+                    enabled: true,
+                    runs: 200
                 }
-            });
-        });
+            }
+        };
+
+        const output = JSON.parse(solc.compile(JSON.stringify(input)));
+
+        // Check for errors
+        if (output.errors) {
+            const errors = output.errors.filter(error => error.severity === 'error');
+            if (errors.length > 0) {
+                throw new Error(errors.map(e => e.formattedMessage).join('\n'));
+            }
+        }
+
+        // Get the contract
+        const contract = output.contracts[contractName + '.sol'][contractName];
+        
+        if (!contract) {
+            throw new Error(`Contract ${contractName} not found in compilation output`);
+        }
+
+        return {
+            success: true,
+            artifact: {
+                abi: contract.abi,
+                bytecode: contract.evm.bytecode.object
+            }
+        };
     } catch (err) {
-        // Limpiar en caso de error
-        await cleanDirectory(contractsDir).catch(console.error);
-        throw 'System error during compilation: ' + err.message;
+        console.error('Compilation error:', err);
+        throw err.message || 'Unknown compilation error';
     }
 }
 
@@ -169,28 +154,36 @@ main().catch((error) => {
 }
 
 // Función para desplegar contrato
-async function deployContract(contractName, constructorArgs = []) {
-    await createDeployScript(contractName, constructorArgs);
-
-    return new Promise((resolve, reject) => {
-        exec('npx hardhat run scripts/deploy.js --network sonic', 
-            { cwd: process.cwd() },
-            (error, stdout) => {
-                if (error) {
-                    reject(error);
-                    return;
-                }
-                
-                const addressMatch = stdout.match(/Contract deployed to: (0x[a-fA-F0-9]{40})/);
-                const contractAddress = addressMatch ? addressMatch[1] : null;
-                
-                resolve({
-                    output: stdout,
-                    contractAddress
-                });
-            }
-        );
-    });
+async function deployContract(contractName, abi, bytecode, constructorArgs = []) {
+    try {
+        // Configurar el proveedor para la red Sonic
+        const provider = new ethers.JsonRpcProvider('https://rpc.sonic.fantom.network/');
+        
+        // Crear una wallet con la clave privada
+        const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
+        
+        // Crear la factory del contrato
+        const factory = new ethers.ContractFactory(abi, bytecode, wallet);
+        
+        // Desplegar el contrato
+        console.log('Deploying contract...');
+        const contract = await factory.deploy(...constructorArgs);
+        
+        // Esperar a que se complete el despliegue
+        console.log('Waiting for deployment...');
+        await contract.waitForDeployment();
+        
+        const address = await contract.getAddress();
+        console.log('Contract deployed to:', address);
+        
+        return {
+            success: true,
+            contractAddress: address
+        };
+    } catch (error) {
+        console.error('Deployment error:', error);
+        throw error.message || 'Unknown deployment error';
+    }
 }
 
 // Import routers
@@ -254,13 +247,18 @@ router.post('/deploy', async (req, res) => {
             });
         }
 
-        // Primero compilamos el contrato
+        // Compilar el contrato
         console.log('Compilando contrato...');
         const compilationResult = await compileContract(contractName, sourceCode);
 
-        // Luego desplegamos
+        // Desplegar el contrato
         console.log('Desplegando contrato...');
-        const deploymentResult = await deployContract(contractName, constructorArgs);
+        const deploymentResult = await deployContract(
+            contractName,
+            compilationResult.artifact.abi,
+            compilationResult.artifact.bytecode,
+            constructorArgs
+        );
 
         res.json({
             message: 'Despliegue exitoso',
