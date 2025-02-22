@@ -291,10 +291,15 @@ app.use((err, req, res, next) => {
     });
 });
 
-// Iniciar servidor
-app.listen(port, () => {
-    console.log(`Servidor API ejecutándose en http://localhost:${port}`);
-    console.log('Rutas disponibles:');
-    console.log('- POST /api/compile');
-    console.log('- POST /api/deploy');
-}); 
+// Vercel specific - Export the Express app
+module.exports = app;
+
+// Only listen if not in Vercel environment
+if (process.env.NODE_ENV !== 'production') {
+    app.listen(port, () => {
+        console.log(`Servidor API ejecutándose en http://localhost:${port}`);
+        console.log('Rutas disponibles:');
+        console.log('- POST /api/compile');
+        console.log('- POST /api/deploy');
+    });
+} 
