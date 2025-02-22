@@ -189,7 +189,10 @@ async function deployContract(contractName, constructorArgs = []) {
     });
 }
 
-// Definir todas las rutas antes del middleware de error
+// Import routers
+const databaseRouter = require('./routes/database');
+
+// Define all routes before error middleware
 const router = express.Router();
 
 router.get('/', (req, res) => {
@@ -269,10 +272,11 @@ router.post('/deploy', async (req, res) => {
     }
 });
 
-// Montar el router en /api
+// Mount routers
 app.use('/api', router);
+app.use('/api/db', databaseRouter);
 
-// Middleware para rutas no encontradas - debe ir después de todas las rutas definidas
+// Middleware for not found routes - must go after all defined routes
 app.use((req, res, next) => {
     console.log(`404 - Ruta no encontrada: ${req.method} ${req.url}`);
     res.status(404).json({ 
@@ -282,7 +286,7 @@ app.use((req, res, next) => {
     });
 });
 
-// Middleware para manejo de errores
+// Error handling middleware
 app.use((err, req, res, next) => {
     console.error('Error interno del servidor:', err);
     res.status(500).json({ 
@@ -301,5 +305,16 @@ if (process.env.NODE_ENV !== 'production') {
         console.log('Rutas disponibles:');
         console.log('- POST /api/compile');
         console.log('- POST /api/deploy');
+        console.log('- POST /api/db/users');
+        console.log('- GET /api/db/users/:walletAddress');
+        console.log('- POST /api/db/conversations');
+        console.log('- GET /api/db/conversations/:walletAddress');
+        console.log('- POST /api/db/messages');
+        console.log('- GET /api/db/messages/:conversationId');
+        console.log('- POST /api/db/code-history');
+        console.log('- GET /api/db/code-history/:conversationId');
+        console.log('- POST /api/db/contracts');
+        console.log('- GET /api/db/contracts/:walletAddress');
+        console.log('- GET /api/db/contracts/conversation/:conversationId');
     });
 } 
