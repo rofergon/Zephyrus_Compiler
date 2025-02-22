@@ -4,6 +4,7 @@ const { exec } = require('child_process');
 const { ethers } = require('ethers');
 const fs = require('fs').promises;
 const path = require('path');
+const os = require('os');
 require('dotenv').config();
 
 const app = express();
@@ -34,10 +35,13 @@ async function cleanDirectory(directory) {
 
 // Función para crear directorios temporales
 async function setupTempDirectories() {
-    const contractsDir = path.join(process.cwd(), 'contracts');
-    const scriptsDir = path.join(process.cwd(), 'scripts');
-    const artifactsDir = path.join(process.cwd(), 'artifacts');
-    const cacheDir = path.join(process.cwd(), 'cache');
+    // Usar el directorio temporal del sistema en producción
+    const baseDir = process.env.NODE_ENV === 'production' ? os.tmpdir() : process.cwd();
+    
+    const contractsDir = path.join(baseDir, 'contracts');
+    const scriptsDir = path.join(baseDir, 'scripts');
+    const artifactsDir = path.join(baseDir, 'artifacts');
+    const cacheDir = path.join(baseDir, 'cache');
     
     try {
         // Intentar limpiar directorios de manera más segura
