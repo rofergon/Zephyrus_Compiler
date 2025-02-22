@@ -70,6 +70,22 @@ async function setupTempDirectories() {
     }
 }
 
+// Función para cargar las dependencias de OpenZeppelin
+function findImports(importPath) {
+    try {
+        // Manejar importaciones de OpenZeppelin
+        if (importPath.startsWith('@openzeppelin/')) {
+            const modulePath = require.resolve(importPath);
+            return {
+                contents: fs.readFileSync(modulePath, 'utf8')
+            };
+        }
+        return { error: 'File not found' };
+    } catch (error) {
+        return { error: 'File not found' };
+    }
+}
+
 // Función para compilar contrato
 async function compileContract(contractName, sourceCode) {
     console.log(`Starting compilation for contract: ${contractName}`);
@@ -95,7 +111,8 @@ async function compileContract(contractName, sourceCode) {
             }
         };
 
-        const output = JSON.parse(solc.compile(JSON.stringify(input)));
+        // Usar el callback de importación
+        const output = JSON.parse(solc.compile(JSON.stringify(input), { import: findImports }));
 
         // Check for errors
         if (output.errors) {
