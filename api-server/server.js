@@ -298,8 +298,8 @@ app.use((err, req, res, next) => {
 // Vercel specific - Export the Express app
 module.exports = app;
 
-// Only listen if not in Vercel environment
-if (process.env.NODE_ENV !== 'production') {
+// Only listen if not in Vercel environment and not in test environment
+if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
     app.listen(port, () => {
         console.log(`Servidor API ejecutándose en http://localhost:${port}`);
         console.log('Rutas disponibles:');
