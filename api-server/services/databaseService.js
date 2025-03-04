@@ -123,6 +123,17 @@ class DatabaseService {
       const validatedId = this.validateString(conversationId, 'conversationId');
       const validatedContent = this.validateString(content, 'content');
       const validatedSender = sender === 'user' || sender === 'ai' ? sender : 'ai';
+      
+      // Verificar si la conversación existe
+      const conversationExists = await this.client.execute({
+        sql: `SELECT id FROM conversations WHERE id = ?`,
+        args: [validatedId]
+      });
+
+      if (conversationExists.rows.length === 0) {
+        throw new Error(`Conversation with id ${validatedId} does not exist`);
+      }
+
       const id = uuidv4();
       
       await this.client.execute({
@@ -354,6 +365,49 @@ class DatabaseService {
       return JSON.parse(sourceCode);
     } catch (error) {
       return sourceCode;
+    }
+  }
+
+  // Update contract conversation
+  async updateContractConversation(contractId, conversationId) {
+    try {
+      const validatedContractId = this.validateString(contractId, 'contractId');
+      const validatedConversationId = this.validateString(conversationId, 'conversationId');
+      
+      // Check if the contract exists
+      const contractExists = await this.client.execute({
+        sql: `SELECT id FROM deployed_contracts WHERE id = ?`,
+        args: [validatedContractId]
+      });
+
+      if (contractExists.rows.length === 0) {
+        throw new Error(`Contract with id ${validatedContractId} does not exist`);
+      }
+
+      // Check if the conversation exists
+      const conversationExists = await this.client.execute({
+        sql: `SELECT id FROM conversations WHERE id = ?`,
+        args: [validatedConversationId]
+      });
+
+      if (conversationExists.rows.length === 0) {
+        throw new Error(`Conversation with id ${validatedConversationId} does not exist`);
+      }
+
+      // Update the contract's conversation ID
+      await this.client.execute({
+        sql: `
+          UPDATE deployed_contracts
+          SET conversation_id = ?
+          WHERE id = ?
+        `,
+        args: [validatedConversationId, validatedContractId]
+      });
+
+      return { success: true };
+    } catch (error) {
+      console.error('[DatabaseService] Error updating contract conversation:', error);
+      throw error;
     }
   }
 }

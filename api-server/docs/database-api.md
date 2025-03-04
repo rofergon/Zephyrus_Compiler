@@ -22,17 +22,10 @@ Content-Type: application/json
 }
 ```
 
-**Respuesta exitosa (200)**
+**Respuesta exitosa**
 ```json
 {
     "success": true
-}
-```
-
-**Error de validación (400)**
-```json
-{
-    "error": "walletAddress is required"
 }
 ```
 
@@ -41,18 +34,11 @@ Content-Type: application/json
 GET /users/:walletAddress
 ```
 
-**Respuesta exitosa (200)**
+**Respuesta exitosa**
 ```json
 {
     "wallet_address": "0x1234567890123456789012345678901234567890",
     "created_at": "2024-03-20T12:00:00.000Z"
-}
-```
-
-**Usuario no encontrado (404)**
-```json
-{
-    "error": "User not found"
 }
 ```
 
@@ -264,45 +250,20 @@ GET /contracts/conversation/:conversationId
 ]
 ```
 
-## Códigos de Estado HTTP
+## Códigos de Error
 
-La API utiliza los siguientes códigos de estado HTTP:
+La API puede devolver los siguientes códigos de estado HTTP:
 
 - `200 OK`: La solicitud se completó exitosamente
-- `400 Bad Request`: Error de validación en los datos de entrada (ej: campos faltantes o inválidos)
+- `400 Bad Request`: La solicitud contiene datos inválidos
 - `404 Not Found`: El recurso solicitado no existe
-- `500 Internal Server Error`: Error interno del servidor o de la base de datos
+- `500 Internal Server Error`: Error interno del servidor
 
-## Formato de Errores
-
-Todos los errores siguen un formato consistente:
+Los errores incluirán un mensaje descriptivo en el siguiente formato:
 
 ```json
 {
-    "error": "Mensaje descriptivo del error"
-}
-```
-
-### Ejemplos de errores comunes:
-
-1. Error de validación (400):
-```json
-{
-    "error": "walletAddress is required"
-}
-```
-
-2. Recurso no encontrado (404):
-```json
-{
-    "error": "User not found"
-}
-```
-
-3. Error interno (500):
-```json
-{
-    "error": "Database error"
+    "error": "Descripción del error"
 }
 ```
 
@@ -312,5 +273,4 @@ Todos los errores siguen un formato consistente:
 - Las direcciones de wallet deben ser direcciones Ethereum válidas (0x...)
 - Los IDs de conversación son UUIDs v4
 - Los metadatos son opcionales y pueden contener cualquier objeto JSON válido
-- La red por defecto es Sonic (networkId: 57054)
-- Todas las respuestas incluyen el header `Content-Type: application/json` 
+- La red por defecto es Sonic (networkId: 57054) 

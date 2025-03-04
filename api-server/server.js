@@ -1,17 +1,20 @@
 const express = require('express');
 const cors = require('cors');
-const solc = require('solc');
+const { exec } = require('child_process');
 const { ethers } = require('ethers');
 const fs = require('fs').promises;
 const path = require('path');
-const os = require('os');
 require('dotenv').config();
 
 const app = express();
 const port = process.env.PORT || 3000;
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: 'http://localhost:5173',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning']
+}));
 app.use(express.json({ limit: '50mb' }));
 
 // Logging middleware
@@ -35,13 +38,10 @@ async function cleanDirectory(directory) {
 
 // Función para crear directorios temporales
 async function setupTempDirectories() {
-    // Usar el directorio temporal del sistema en producción
-    const baseDir = process.env.NODE_ENV === 'production' ? os.tmpdir() : process.cwd();
-    
-    const contractsDir = path.join(baseDir, 'contracts');
-    const scriptsDir = path.join(baseDir, 'scripts');
-    const artifactsDir = path.join(baseDir, 'artifacts');
-    const cacheDir = path.join(baseDir, 'cache');
+    const contractsDir = path.join(process.cwd(), 'contracts');
+    const scriptsDir = path.join(process.cwd(), 'scripts');
+    const artifactsDir = path.join(process.cwd(), 'artifacts');
+    const cacheDir = path.join(process.cwd(), 'cache');
     
     try {
         // Intentar limpiar directorios de manera más segura
@@ -70,75 +70,73 @@ async function setupTempDirectories() {
     }
 }
 
-// Función para cargar las dependencias de OpenZeppelin
-function findImports(importPath) {
-    try {
-        // Manejar importaciones de OpenZeppelin
-        if (importPath.startsWith('@openzeppelin/')) {
-            const modulePath = require.resolve(importPath);
-            return {
-                contents: fs.readFileSync(modulePath, 'utf8')
-            };
-        }
-        return { error: 'File not found' };
-    } catch (error) {
-        return { error: 'File not found' };
-    }
-}
-
 // Función para compilar contrato
 async function compileContract(contractName, sourceCode) {
     console.log(`Starting compilation for contract: ${contractName}`);
+    const { contractsDir } = await setupTempDirectories();
+    const contractPath = path.join(contractsDir, `${contractName}.sol`);
     
     try {
-        const input = {
-            language: 'Solidity',
-            sources: {
-                [contractName + '.sol']: {
-                    content: sourceCode
+        // Escribir el contrato
+        await fs.writeFile(contractPath, sourceCode);
+
+        return new Promise((resolve, reject) => {
+            const command = 'npx hardhat compile --force';
+            
+            exec(command, { cwd: process.cwd() }, async (error, stdout, stderr) => {
+                if (error) {
+                    console.log('Raw compilation error:', stderr);
+                    
+                    // Limpiar caracteres de escape ANSI y formatear el error
+                    const cleanError = stderr
+                        .replace(/\u001b\[\d+m/g, '') // Eliminar códigos de color ANSI
+                        .replace(/\r\n/g, '\n')       // Normalizar saltos de línea
+                        .split('\n')                  // Dividir en líneas
+                        .filter(line => 
+                            line.trim() &&            // Eliminar líneas vacías
+                            !line.includes('For more info') && // Eliminar línea de info adicional
+                            !line.includes('--stack-traces')   // Eliminar línea de stack traces
+                        )
+                        .join('\n');                 // Volver a unir las líneas
+
+                    reject(cleanError);
+                    return;
                 }
-            },
-            settings: {
-                outputSelection: {
-                    '*': {
-                        '*': ['*']
+
+                try {
+                    const artifactPath = path.join(
+                        process.cwd(),
+                        'artifacts/contracts',
+                        `${contractName}.sol`,
+                        `${contractName}.json`
+                    );
+                    
+                    const artifactExists = await fs.access(artifactPath)
+                        .then(() => true)
+                        .catch(() => false);
+                    
+                    if (!artifactExists) {
+                        reject('Contract compilation failed: Could not generate artifact');
+                        return;
                     }
-                },
-                optimizer: {
-                    enabled: true,
-                    runs: 200
+
+                    const artifact = JSON.parse(await fs.readFile(artifactPath, 'utf8'));
+                    resolve({
+                        success: true,
+                        artifact: {
+                            abi: artifact.abi,
+                            bytecode: artifact.bytecode
+                        }
+                    });
+                } catch (err) {
+                    reject('Failed to process compilation: ' + err.message);
                 }
-            }
-        };
-
-        // Usar el callback de importación
-        const output = JSON.parse(solc.compile(JSON.stringify(input), { import: findImports }));
-
-        // Check for errors
-        if (output.errors) {
-            const errors = output.errors.filter(error => error.severity === 'error');
-            if (errors.length > 0) {
-                throw new Error(errors.map(e => e.formattedMessage).join('\n'));
-            }
-        }
-
-        // Get the contract
-        const contract = output.contracts[contractName + '.sol'][contractName];
-        
-        if (!contract) {
-            throw new Error(`Contract ${contractName} not found in compilation output`);
-        }
-
-        return {
-            success: true,
-            artifact: {
-                abi: contract.abi,
-                bytecode: contract.evm.bytecode.object
-            }
-        };
+            });
+        });
     } catch (err) {
-        console.error('Compilation error:', err);
-        throw err.message || 'Unknown compilation error';
+        // Limpiar en caso de error
+        await cleanDirectory(contractsDir).catch(console.error);
+        throw 'System error during compilation: ' + err.message;
     }
 }
 
@@ -171,36 +169,28 @@ main().catch((error) => {
 }
 
 // Función para desplegar contrato
-async function deployContract(contractName, abi, bytecode, constructorArgs = []) {
-    try {
-        // Configurar el proveedor para la red Sonic
-        const provider = new ethers.JsonRpcProvider('https://rpc.sonic.fantom.network/');
-        
-        // Crear una wallet con la clave privada
-        const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
-        
-        // Crear la factory del contrato
-        const factory = new ethers.ContractFactory(abi, bytecode, wallet);
-        
-        // Desplegar el contrato
-        console.log('Deploying contract...');
-        const contract = await factory.deploy(...constructorArgs);
-        
-        // Esperar a que se complete el despliegue
-        console.log('Waiting for deployment...');
-        await contract.waitForDeployment();
-        
-        const address = await contract.getAddress();
-        console.log('Contract deployed to:', address);
-        
-        return {
-            success: true,
-            contractAddress: address
-        };
-    } catch (error) {
-        console.error('Deployment error:', error);
-        throw error.message || 'Unknown deployment error';
-    }
+async function deployContract(contractName, constructorArgs = []) {
+    await createDeployScript(contractName, constructorArgs);
+
+    return new Promise((resolve, reject) => {
+        exec('npx hardhat run scripts/deploy.js --network sonic', 
+            { cwd: process.cwd() },
+            (error, stdout) => {
+                if (error) {
+                    reject(error);
+                    return;
+                }
+                
+                const addressMatch = stdout.match(/Contract deployed to: (0x[a-fA-F0-9]{40})/);
+                const contractAddress = addressMatch ? addressMatch[1] : null;
+                
+                resolve({
+                    output: stdout,
+                    contractAddress
+                });
+            }
+        );
+    });
 }
 
 // Import routers
@@ -264,18 +254,13 @@ router.post('/deploy', async (req, res) => {
             });
         }
 
-        // Compilar el contrato
+        // Primero compilamos el contrato
         console.log('Compilando contrato...');
         const compilationResult = await compileContract(contractName, sourceCode);
 
-        // Desplegar el contrato
+        // Luego desplegamos
         console.log('Desplegando contrato...');
-        const deploymentResult = await deployContract(
-            contractName,
-            compilationResult.artifact.abi,
-            compilationResult.artifact.bytecode,
-            constructorArgs
-        );
+        const deploymentResult = await deployContract(contractName, constructorArgs);
 
         res.json({
             message: 'Despliegue exitoso',
@@ -317,8 +302,8 @@ app.use((err, req, res, next) => {
 // Vercel specific - Export the Express app
 module.exports = app;
 
-// Only listen if not in Vercel environment and not in test environment
-if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
+// Only listen if not in Vercel environment
+if (process.env.NODE_ENV !== 'production') {
     app.listen(port, () => {
         console.log(`Servidor API ejecutándose en http://localhost:${port}`);
         console.log('Rutas disponibles:');
