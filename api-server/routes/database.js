@@ -135,4 +135,148 @@ router.patch('/contracts/:contractId/conversation', async (req, res) => {
   }
 });
 
+// Agents
+router.post('/agents', async (req, res) => {
+  try {
+    const agent = await db.createAgent(req.body);
+    res.json(agent);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/agents/:contractId', async (req, res) => {
+  try {
+    const { contractId } = req.params;
+    const agents = await db.getAgentsByContract(contractId);
+    res.json(agents);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.patch('/agents/:agentId', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const agent = await db.updateAgent(agentId, req.body);
+    res.json(agent);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Agent Functions
+router.post('/agents/:agentId/functions', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const function_ = await db.createAgentFunction(agentId, req.body);
+    res.json(function_);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/agents/:agentId/functions', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const functions = await db.getAgentFunctions(agentId);
+    res.json(functions);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.patch('/agents/functions/:functionId', async (req, res) => {
+  try {
+    const { functionId } = req.params;
+    const function_ = await db.updateAgentFunction(functionId, req.body);
+    res.json(function_);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Agent Schedules
+router.post('/agents/:agentId/schedules', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const schedule = await db.createAgentSchedule(agentId, req.body);
+    res.json(schedule);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/agents/:agentId/schedules', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const schedules = await db.getAgentSchedules(agentId);
+    res.json(schedules);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.patch('/agents/schedules/:scheduleId', async (req, res) => {
+  try {
+    const { scheduleId } = req.params;
+    const schedule = await db.updateAgentSchedule(scheduleId, req.body);
+    res.json(schedule);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Agent Notifications
+router.post('/agents/:agentId/notifications', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const notification = await db.createAgentNotification(agentId, req.body);
+    res.json(notification);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/agents/:agentId/notifications', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const notifications = await db.getAgentNotifications(agentId);
+    res.json(notifications);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.patch('/agents/notifications/:notificationId', async (req, res) => {
+  try {
+    const { notificationId } = req.params;
+    const notification = await db.updateAgentNotification(notificationId, req.body);
+    res.json(notification);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Agent Execution Logs
+router.post('/agents/:agentId/logs', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const log = await db.createAgentExecutionLog(agentId, req.body);
+    res.json(log);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/agents/:agentId/logs', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const logs = await db.getAgentExecutionLogs(agentId);
+    res.json(logs);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router; 

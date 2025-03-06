@@ -250,6 +250,302 @@ GET /contracts/conversation/:conversationId
 ]
 ```
 
+### Agentes
+
+#### Crear Agente
+```http
+POST /agents
+Content-Type: application/json
+
+{
+    "contractId": "uuid-del-contrato",
+    "name": "Mi Agente",
+    "description": "Descripción del agente",
+    "status": "active",
+    "gasLimit": "1000000",
+    "maxPriorityFee": "2"
+}
+```
+
+**Respuesta exitosa**
+```json
+{
+    "agentId": "uuid-del-agente",
+    "contractId": "uuid-del-contrato",
+    "name": "Mi Agente",
+    "description": "Descripción del agente",
+    "status": "active",
+    "gasLimit": "1000000",
+    "maxPriorityFee": "2",
+    "created_at": "2024-03-20T12:00:00.000Z",
+    "updated_at": "2024-03-20T12:00:00.000Z"
+}
+```
+
+#### Obtener Agentes por Contrato
+```http
+GET /agents/:contractId
+```
+
+**Respuesta exitosa**
+```json
+[
+    {
+        "agentId": "uuid-del-agente",
+        "contractId": "uuid-del-contrato",
+        "name": "Mi Agente",
+        "description": "Descripción del agente",
+        "status": "active",
+        "gasLimit": "1000000",
+        "maxPriorityFee": "2",
+        "created_at": "2024-03-20T12:00:00.000Z",
+        "updated_at": "2024-03-20T12:00:00.000Z"
+    }
+]
+```
+
+#### Actualizar Agente
+```http
+PATCH /agents/:agentId
+Content-Type: application/json
+
+{
+    "status": "paused",
+    "gasLimit": "2000000"
+}
+```
+
+**Respuesta exitosa**
+```json
+{
+    "agentId": "uuid-del-agente",
+    "status": "paused",
+    "gasLimit": "2000000",
+    "updated_at": "2024-03-20T12:00:00.000Z"
+}
+```
+
+### Funciones del Agente
+
+#### Crear Función
+```http
+POST /agents/:agentId/functions
+Content-Type: application/json
+
+{
+    "functionName": "transfer",
+    "functionSignature": "transfer(address,uint256)",
+    "functionType": "write",
+    "isEnabled": true,
+    "validationRules": {
+        "minAmount": "0.1",
+        "maxAmount": "10"
+    }
+}
+```
+
+**Respuesta exitosa**
+```json
+{
+    "functionId": "uuid-de-la-funcion",
+    "agentId": "uuid-del-agente",
+    "functionName": "transfer",
+    "functionSignature": "transfer(address,uint256)",
+    "functionType": "write",
+    "isEnabled": true,
+    "validationRules": {
+        "minAmount": "0.1",
+        "maxAmount": "10"
+    },
+    "created_at": "2024-03-20T12:00:00.000Z",
+    "updated_at": "2024-03-20T12:00:00.000Z"
+}
+```
+
+#### Obtener Funciones del Agente
+```http
+GET /agents/:agentId/functions
+```
+
+**Respuesta exitosa**
+```json
+[
+    {
+        "functionId": "uuid-de-la-funcion",
+        "agentId": "uuid-del-agente",
+        "functionName": "transfer",
+        "functionSignature": "transfer(address,uint256)",
+        "functionType": "write",
+        "isEnabled": true,
+        "validationRules": {
+            "minAmount": "0.1",
+            "maxAmount": "10"
+        },
+        "created_at": "2024-03-20T12:00:00.000Z",
+        "updated_at": "2024-03-20T12:00:00.000Z"
+    }
+]
+```
+
+### Programación del Agente
+
+#### Crear Programación
+```http
+POST /agents/:agentId/schedules
+Content-Type: application/json
+
+{
+    "scheduleType": "cron",
+    "cronExpression": "0 * * * *",
+    "isActive": true
+}
+```
+
+**Respuesta exitosa**
+```json
+{
+    "scheduleId": "uuid-de-la-programacion",
+    "agentId": "uuid-del-agente",
+    "scheduleType": "cron",
+    "cronExpression": "0 * * * *",
+    "isActive": true,
+    "nextExecution": "2024-03-20T13:00:00.000Z",
+    "created_at": "2024-03-20T12:00:00.000Z",
+    "updated_at": "2024-03-20T12:00:00.000Z"
+}
+```
+
+#### Obtener Programaciones
+```http
+GET /agents/:agentId/schedules
+```
+
+**Respuesta exitosa**
+```json
+[
+    {
+        "scheduleId": "uuid-de-la-programacion",
+        "agentId": "uuid-del-agente",
+        "scheduleType": "cron",
+        "cronExpression": "0 * * * *",
+        "isActive": true,
+        "nextExecution": "2024-03-20T13:00:00.000Z",
+        "lastExecution": "2024-03-20T12:00:00.000Z",
+        "created_at": "2024-03-20T12:00:00.000Z",
+        "updated_at": "2024-03-20T12:00:00.000Z"
+    }
+]
+```
+
+### Notificaciones del Agente
+
+#### Crear Notificación
+```http
+POST /agents/:agentId/notifications
+Content-Type: application/json
+
+{
+    "notificationType": "discord",
+    "configuration": {
+        "webhookUrl": "https://discord.com/api/webhooks/...",
+        "channelId": "123456789"
+    },
+    "isEnabled": true
+}
+```
+
+**Respuesta exitosa**
+```json
+{
+    "notificationId": "uuid-de-la-notificacion",
+    "agentId": "uuid-del-agente",
+    "notificationType": "discord",
+    "configuration": {
+        "webhookUrl": "https://discord.com/api/webhooks/...",
+        "channelId": "123456789"
+    },
+    "isEnabled": true,
+    "created_at": "2024-03-20T12:00:00.000Z",
+    "updated_at": "2024-03-20T12:00:00.000Z"
+}
+```
+
+#### Obtener Notificaciones
+```http
+GET /agents/:agentId/notifications
+```
+
+**Respuesta exitosa**
+```json
+[
+    {
+        "notificationId": "uuid-de-la-notificacion",
+        "agentId": "uuid-del-agente",
+        "notificationType": "discord",
+        "configuration": {
+            "webhookUrl": "https://discord.com/api/webhooks/...",
+            "channelId": "123456789"
+        },
+        "isEnabled": true,
+        "created_at": "2024-03-20T12:00:00.000Z",
+        "updated_at": "2024-03-20T12:00:00.000Z"
+    }
+]
+```
+
+### Registros de Ejecución
+
+#### Crear Registro de Ejecución
+```http
+POST /agents/:agentId/logs
+Content-Type: application/json
+
+{
+    "functionId": "uuid-de-la-funcion",
+    "transactionHash": "0x...",
+    "status": "success",
+    "gasUsed": "50000",
+    "gasPrice": "20000000000"
+}
+```
+
+**Respuesta exitosa**
+```json
+{
+    "logId": "uuid-del-registro",
+    "agentId": "uuid-del-agente",
+    "functionId": "uuid-de-la-funcion",
+    "transactionHash": "0x...",
+    "status": "success",
+    "gasUsed": "50000",
+    "gasPrice": "20000000000",
+    "executionTime": "2024-03-20T12:00:00.000Z",
+    "created_at": "2024-03-20T12:00:00.000Z"
+}
+```
+
+#### Obtener Registros de Ejecución
+```http
+GET /agents/:agentId/logs
+```
+
+**Respuesta exitosa**
+```json
+[
+    {
+        "logId": "uuid-del-registro",
+        "agentId": "uuid-del-agente",
+        "functionId": "uuid-de-la-funcion",
+        "transactionHash": "0x...",
+        "status": "success",
+        "gasUsed": "50000",
+        "gasPrice": "20000000000",
+        "executionTime": "2024-03-20T12:00:00.000Z",
+        "created_at": "2024-03-20T12:00:00.000Z"
+    }
+]
+```
+
 ## Códigos de Error
 
 La API puede devolver los siguientes códigos de estado HTTP:
