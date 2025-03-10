@@ -1,7 +1,7 @@
 require("@nomicfoundation/hardhat-toolbox");
 require('dotenv').config();
 
-// Asegúrate de tener PRIVATE_KEY en tu archivo .env
+// Make sure you have PRIVATE_KEY in your .env file
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 
 if (!PRIVATE_KEY) {

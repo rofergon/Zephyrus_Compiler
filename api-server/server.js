@@ -9,21 +9,51 @@ require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Middleware
-app.use(cors({
-  origin: ['http://localhost:5173', 'https://zephyrus-frontend.vercel.app'],
+// CORS Configuration
+const corsOptions = {
+  origin: process.env.NODE_ENV === 'production' 
+    ? ['https://f83cd6f64f06.ngrok.app', 'https://d35ce25fa7fd.ngrok.app', 'https://3ea5d3427422.ngrok.app', 'https://zephyrus-frontend.vercel.app'] 
+    : ['http://localhost:5173', 'http://localhost:3000', 'https://f83cd6f64f06.ngrok.app', 'https://d35ce25fa7fd.ngrok.app', 'https://3ea5d3427422.ngrok.app', 'https://zephyrus-frontend.vercel.app'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning']
-}));
-app.use(express.json({ limit: '50mb' }));
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'ngrok-skip-browser-warning',
+    'X-Requested-With',
+    'Accept',
+    'Origin'
+  ],
+  exposedHeaders: ['Content-Length', 'X-Requested-With'],
+  credentials: true,
+  preflightContinue: false,
+  optionsSuccessStatus: 204,
+  maxAge: 86400 // Preflight results can be cached for 24 hours
+};
 
-// Logging middleware
+// Apply CORS configuration
+app.use(cors(corsOptions));
+
+// Parse JSON request body
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Handle preflight requests
+app.options('*', cors(corsOptions));
+
+// Ensure JSON content type for all responses
+app.use((req, res, next) => {
+  res.type('json');
+  next();
+});
+
+// Logging middleware for debugging CORS
 app.use((req, res, next) => {
     console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+    console.log('Headers:', req.headers);
     next();
 });
 
-// Función para limpiar directorio
+// Function to clean directory
 async function cleanDirectory(directory) {
     try {
         const files = await fs.readdir(directory);
@@ -36,7 +66,7 @@ async function cleanDirectory(directory) {
     }
 }
 
-// Función para crear directorios temporales
+// Function to create temporary directories
 async function setupTempDirectories() {
     const contractsDir = path.join(process.cwd(), 'contracts');
     const scriptsDir = path.join(process.cwd(), 'scripts');
@@ -51,7 +81,7 @@ async function setupTempDirectories() {
             fs.rm(cacheDir, { recursive: true, force: true }).catch(() => {})
         ]);
 
-        // Esperar un momento para que Windows libere los archivos
+        // Wait a moment for Windows to release the files
         await new Promise(resolve => setTimeout(resolve, 100));
         
         // Crear directorios
@@ -65,12 +95,12 @@ async function setupTempDirectories() {
         
         return { contractsDir, scriptsDir, artifactsDir };
     } catch (error) {
-        console.error('Error en setupTempDirectories:', error);
+        console.error('Error in setupTempDirectories:', error);
         throw error;
     }
 }
 
-// Función para compilar contrato
+// Function to compile contract
 async function compileContract(contractName, sourceCode) {
     console.log(`Starting compilation for contract: ${contractName}`);
     const { contractsDir } = await setupTempDirectories();
@@ -87,17 +117,17 @@ async function compileContract(contractName, sourceCode) {
                 if (error) {
                     console.log('Raw compilation error:', stderr);
                     
-                    // Limpiar caracteres de escape ANSI y formatear el error
+                    // Clean ANSI escape characters and format the error
                     const cleanError = stderr
-                        .replace(/\u001b\[\d+m/g, '') // Eliminar códigos de color ANSI
-                        .replace(/\r\n/g, '\n')       // Normalizar saltos de línea
-                        .split('\n')                  // Dividir en líneas
+                        .replace(/\u001b\[\d+m/g, '') // Remove ANSI color codes
+                        .replace(/\r\n/g, '\n')       // Normalize line breaks
+                        .split('\n')                  // Split into lines
                         .filter(line => 
-                            line.trim() &&            // Eliminar líneas vacías
-                            !line.includes('For more info') && // Eliminar línea de info adicional
-                            !line.includes('--stack-traces')   // Eliminar línea de stack traces
+                            line.trim() &&            // Remove empty lines
+                            !line.includes('For more info') && // Remove additional info line
+                            !line.includes('--stack-traces')   // Remove stack traces line
                         )
-                        .join('\n');                 // Volver a unir las líneas
+                        .join('\n');                 // Rejoin the lines
 
                     reject(cleanError);
                     return;
@@ -140,7 +170,7 @@ async function compileContract(contractName, sourceCode) {
     }
 }
 
-// Función para crear script de despliegue
+// Function to create deployment script
 async function createDeployScript(contractName, constructorArgs = []) {
     const argsString = constructorArgs.map(arg => {
         if (typeof arg === 'string') {
@@ -168,7 +198,7 @@ main().catch((error) => {
     await fs.writeFile(path.join(process.cwd(), 'scripts', 'deploy.js'), deployScript);
 }
 
-// Función para desplegar contrato
+// Function to deploy contract
 async function deployContract(contractName, constructorArgs = []) {
     await createDeployScript(contractName, constructorArgs);
 
@@ -195,6 +225,7 @@ async function deployContract(contractName, constructorArgs = []) {
 
 // Import routers
 const databaseRouter = require('./routes/database');
+const contractInteractionRouter = require('./routes/contractInteraction');
 
 // Define all routes before error middleware
 const router = express.Router();
@@ -214,19 +245,14 @@ router.post('/compile', async (req, res) => {
             receivedFields: Object.keys(req.body)
         });
 
-        // Validar campos requeridos
-        if (!contractName || !sourceCode) {
-            return res.status(400).json('Missing required fields: contractName and sourceCode are required');
-        }
-
-        // Verificar que el nombre del contrato coincida con el código
+        // Verify that the contract name matches the code
         const contractNameRegex = /contract\s+(\w+)(?:\s+is\s+[^{]+)?\s*{/;
         const contractNameMatch = sourceCode.match(contractNameRegex);
         if (!contractNameMatch || contractNameMatch[1] !== contractName) {
             return res.status(400).json('Contract name mismatch: The provided name does not match the contract name in the source code');
         }
 
-        // Verificar que el código incluye la versión de Solidity
+        // Verify that the code includes the Solidity version
         if (!sourceCode.includes('pragma solidity')) {
             return res.status(400).json('Missing Solidity version: The source code must include a pragma solidity statement');
         }
@@ -250,12 +276,12 @@ router.post('/deploy', async (req, res) => {
 
         if (!contractName || !sourceCode) {
             return res.status(400).json({ 
-                error: 'Se requiere el nombre del contrato y el código fuente' 
+                error: 'Contract name and source code are required' 
             });
         }
 
-        // Primero compilamos el contrato
-        console.log('Compilando contrato...');
+        // First we compile the contract
+        console.log('Compiling contract...');
         const compilationResult = await compileContract(contractName, sourceCode);
 
         // Luego desplegamos
@@ -279,6 +305,7 @@ router.post('/deploy', async (req, res) => {
 // Mount routers
 app.use('/api', router);
 app.use('/api/db', databaseRouter);
+app.use('/api/contracts', contractInteractionRouter);
 
 // Middleware for not found routes - must go after all defined routes
 app.use((req, res, next) => {
@@ -305,8 +332,8 @@ module.exports = app;
 // Only listen if not in Vercel environment
 if (process.env.NODE_ENV !== 'production') {
     app.listen(port, () => {
-        console.log(`Servidor API ejecutándose en http://localhost:${port}`);
-        console.log('Rutas disponibles:');
+        console.log(`API Server running at http://localhost:${port}`);
+        console.log('Available Routes:');
         console.log('- POST /api/compile');
         console.log('- POST /api/deploy');
         console.log('- POST /api/db/users');
@@ -320,5 +347,27 @@ if (process.env.NODE_ENV !== 'production') {
         console.log('- POST /api/db/contracts');
         console.log('- GET /api/db/contracts/:walletAddress');
         console.log('- GET /api/db/contracts/conversation/:conversationId');
+        console.log('- PATCH /api/db/contracts/:contractId/conversation');
+        console.log('\nAgent Routes:');
+        console.log('- POST /api/db/agents');
+        console.log('- GET /api/db/agents/:contractId');
+        console.log('- GET /api/db/agents/getById/:agentId');
+        console.log('- GET /api/db/agents/owner/:ownerAddress');
+        console.log('- PATCH /api/db/agents/:agentId');
+        console.log('\nAgent Functions Routes:');
+        console.log('- POST /api/db/agents/:agentId/functions');
+        console.log('- GET /api/db/agents/:agentId/functions');
+        console.log('- PATCH /api/db/agents/functions/:functionId');
+        console.log('\nAgent Schedule Routes:');
+        console.log('- POST /api/db/agents/:agentId/schedules');
+        console.log('- GET /api/db/agents/:agentId/schedules');
+        console.log('- PATCH /api/db/agents/schedules/:scheduleId');
+        console.log('\nAgent Notification Routes:');
+        console.log('- POST /api/db/agents/:agentId/notifications');
+        console.log('- GET /api/db/agents/:agentId/notifications');
+        console.log('- PATCH /api/db/agents/notifications/:notificationId');
+        console.log('\nExecution Log Routes:');
+        console.log('- POST /api/db/agents/:agentId/logs');
+        console.log('- GET /api/db/agents/:agentId/logs');
     });
 } 

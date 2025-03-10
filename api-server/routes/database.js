@@ -46,6 +46,23 @@ router.get('/conversations/:walletAddress', async (req, res) => {
   }
 });
 
+// Update conversation name
+router.patch('/conversations/:conversationId/name', async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { name } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({ error: 'name is required in the request body' });
+    }
+    
+    const result = await db.updateConversationName(conversationId, name);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Messages
 router.post('/messages', async (req, res) => {
   try {
@@ -98,6 +115,18 @@ router.post('/contracts', async (req, res) => {
   }
 });
 
+// Crear contrato en la tabla contracts
+router.post('/contracts/create', async (req, res) => {
+  try {
+    console.log('Creando contrato en tabla contracts:', JSON.stringify(req.body));
+    const result = await db.createContract(req.body);
+    res.json(result);
+  } catch (error) {
+    console.error('Error creating contract:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.get('/contracts/:walletAddress', async (req, res) => {
   try {
     const { walletAddress } = req.params;
@@ -138,10 +167,43 @@ router.patch('/contracts/:contractId/conversation', async (req, res) => {
 // Agents
 router.post('/agents', async (req, res) => {
   try {
-    const agent = await db.createAgent(req.body);
-    res.json(agent);
+    console.log('Creando agente con datos:', JSON.stringify(req.body));
+    const { contractId, name, description, status, gas_limit, max_priority_fee, owner, contract_state } = req.body;
+    const agentData = { name, description, status, gas_limit, max_priority_fee, owner, contract_state };
+    console.log('contractId:', contractId);
+    console.log('agentData:', JSON.stringify(agentData));
+    const result = await db.createAgent(contractId, agentData);
+    res.json(result);
   } catch (error) {
+    console.error('Error en POST /agents:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint para obtener un agente específico por su ID
+router.get('/agents/getById/:agentId', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    console.log(`Buscando agente con ID: ${agentId}`);
+    const agent = await db.getAgentById(agentId);
+    
+    if (!agent) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'Agent not found' 
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: agent
+    });
+  } catch (error) {
+    console.error(`Error obteniendo agente con ID ${req.params.agentId}:`, error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
   }
 });
 
@@ -155,11 +217,32 @@ router.get('/agents/:contractId', async (req, res) => {
   }
 });
 
+// Endpoint para obtener agentes por propietario
+router.get('/agents/owner/:ownerAddress', async (req, res) => {
+  try {
+    const { ownerAddress } = req.params;
+    console.log(`Buscando agentes para el propietario: ${ownerAddress}`);
+    const agents = await db.getAgentsByOwner(ownerAddress);
+    
+    res.json({
+      success: true,
+      data: agents
+    });
+  } catch (error) {
+    console.error(`Error obteniendo agentes para el propietario ${req.params.ownerAddress}:`, error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
+
 router.patch('/agents/:agentId', async (req, res) => {
   try {
     const { agentId } = req.params;
-    const agent = await db.updateAgent(agentId, req.body);
-    res.json(agent);
+    const updateData = req.body;
+    const result = await db.updateAgent(agentId, updateData);
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -169,8 +252,9 @@ router.patch('/agents/:agentId', async (req, res) => {
 router.post('/agents/:agentId/functions', async (req, res) => {
   try {
     const { agentId } = req.params;
-    const function_ = await db.createAgentFunction(agentId, req.body);
-    res.json(function_);
+    const functionData = req.body;
+    const result = await db.createAgentFunction(agentId, functionData);
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -189,8 +273,9 @@ router.get('/agents/:agentId/functions', async (req, res) => {
 router.patch('/agents/functions/:functionId', async (req, res) => {
   try {
     const { functionId } = req.params;
-    const function_ = await db.updateAgentFunction(functionId, req.body);
-    res.json(function_);
+    const updateData = req.body;
+    const result = await db.updateAgentFunction(functionId, updateData);
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -200,8 +285,9 @@ router.patch('/agents/functions/:functionId', async (req, res) => {
 router.post('/agents/:agentId/schedules', async (req, res) => {
   try {
     const { agentId } = req.params;
-    const schedule = await db.createAgentSchedule(agentId, req.body);
-    res.json(schedule);
+    const scheduleData = req.body;
+    const result = await db.createAgentSchedule(agentId, scheduleData);
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -220,8 +306,9 @@ router.get('/agents/:agentId/schedules', async (req, res) => {
 router.patch('/agents/schedules/:scheduleId', async (req, res) => {
   try {
     const { scheduleId } = req.params;
-    const schedule = await db.updateAgentSchedule(scheduleId, req.body);
-    res.json(schedule);
+    const updateData = req.body;
+    const result = await db.updateAgentSchedule(scheduleId, updateData);
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -231,8 +318,9 @@ router.patch('/agents/schedules/:scheduleId', async (req, res) => {
 router.post('/agents/:agentId/notifications', async (req, res) => {
   try {
     const { agentId } = req.params;
-    const notification = await db.createAgentNotification(agentId, req.body);
-    res.json(notification);
+    const notificationData = req.body;
+    const result = await db.createAgentNotification(agentId, notificationData);
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -251,8 +339,9 @@ router.get('/agents/:agentId/notifications', async (req, res) => {
 router.patch('/agents/notifications/:notificationId', async (req, res) => {
   try {
     const { notificationId } = req.params;
-    const notification = await db.updateAgentNotification(notificationId, req.body);
-    res.json(notification);
+    const updateData = req.body;
+    const result = await db.updateAgentNotification(notificationId, updateData);
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -262,8 +351,9 @@ router.patch('/agents/notifications/:notificationId', async (req, res) => {
 router.post('/agents/:agentId/logs', async (req, res) => {
   try {
     const { agentId } = req.params;
-    const log = await db.createAgentExecutionLog(agentId, req.body);
-    res.json(log);
+    const logData = req.body;
+    const result = await db.createAgentExecutionLog(agentId, logData);
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

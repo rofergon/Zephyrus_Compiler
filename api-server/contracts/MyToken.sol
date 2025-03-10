@@ -2,59 +2,44 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
-import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Pausable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 
-contract MyToken is ERC20, ERC20Burnable, ERC20Pausable, Ownable, ERC20Permit {
-    // Custom events
-    event TokensMinted(address indexed to, uint256 amount);
-    
+contract MyToken is ERC20, Ownable {
     constructor(
         string memory name,
         string memory symbol,
+        uint256 initialSupply,
         address initialOwner
-    ) 
-        ERC20(name, symbol)
-        Ownable(initialOwner)
-        ERC20Permit(name)
-    {
-        // Initial supply can be minted here if desired
-        // _mint(msg.sender, initialSupply);
+    ) ERC20(name, symbol) Ownable(initialOwner) {
+        _mint(initialOwner, initialSupply * (10 ** decimals()));
     }
 
     /**
-     * @dev Mints new tokens. Only callable by owner.
-     * @param to Address to receive the tokens
-     * @param amount Amount of tokens to mint
+     * @dev Creates `amount` new tokens and assigns them to `account`.
+     * @param to The address to receive the minted tokens
+     * @param amount The amount of tokens to mint
      */
     function mint(address to, uint256 amount) public onlyOwner {
-        require(to != address(0), "Cannot mint to zero address");
-        require(amount > 0, "Amount must be greater than 0");
         _mint(to, amount);
-        emit TokensMinted(to, amount);
     }
 
     /**
-     * @dev Pauses all token transfers. Only callable by owner.
+     * @dev Destroys `amount` tokens from the caller's account
+     * @param amount The amount of tokens to burn
      */
-    function pause() public onlyOwner {
-        _pause();
+    function burn(uint256 amount) public {
+        _burn(_msgSender(), amount);
     }
 
     /**
-     * @dev Unpauses all token transfers. Only callable by owner.
+     * @dev Destroys `amount` tokens from `account`
+     * @param account The address to burn tokens from
+     * @param amount The amount of tokens to burn
+     * Requirements:
+     * - the caller must have allowance for ``accounts``'s tokens of at least `amount`.
      */
-    function unpause() public onlyOwner {
-        _unpause();
-    }
-
-    // Required overrides
-    function _update(address from, address to, uint256 value)
-        internal
-        override(ERC20, ERC20Pausable)
-    {
-        super._update(from, to, value);
+    function burnFrom(address account, uint256 amount) public {
+        _spendAllowance(account, _msgSender(), amount);
+        _burn(account, amount);
     }
 }
