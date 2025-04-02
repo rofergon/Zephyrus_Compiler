@@ -1,7 +1,7 @@
 {
   "build": {
     "builder": "NIXPACKS",
-    "buildCommand": "cd api-server && npm install --legacy-peer-deps"
+    "buildCommand": "cd api-server && npm install"
   },
   "deploy": {
     "restartPolicyType": "ON_FAILURE",
