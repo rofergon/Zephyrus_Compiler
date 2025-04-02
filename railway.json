@@ -1,7 +1,7 @@
 {
   "build": {
     "builder": "NIXPACKS",
-    "buildCommand": "cd api-server && npm install"
+    "buildCommand": "cd api-server && rm -f package-lock.json && npm install --production"
   },
   "deploy": {
     "restartPolicyType": "ON_FAILURE",
